@@ -1,0 +1,1359 @@
+#!/usr/bin/env bash
+# create_local_repo_files.sh
+# 在本地仓库根创建所有模板文件（docker-compose, scripts, chaincode 等）
+# 使用前：
+# 1) 在本地 clone 好仓库并 cd 到仓库根
+# 2) 确保已安装 git；可选安装 gh（用于自动创建 PR）
+# 3) 运行：chmod +x create_local_repo_files.sh && ./create_local_repo_files.sh
+set -e
+
+BRANCH="fabric-pbft-setup"
+ORDERER_IMAGE="myregistry/bft-orderer:1.0"
+
+echo "将在当前目录创建模板文件（请确认当前目录是仓库根）"
+read -p "继续并创建文件？(yes/no) " CONFIRM
+if [ "$CONFIRM" != "yes" ]; then
+  echo "取消。"
+  exit 1
+fi
+
+mkdir -p scripts chaincode/power_trade channel-artifacts crypto-config bft-config || true
+
+# docker-compose-complete.yaml
+cat > docker-compose-complete.yaml <<EOF
+version: '3.7'
+services:
+  # ---- Orderers (PBFT) ----
+  orderer1:
+    image: ${ORDERER_IMAGE}
+    container_name: orderer1
+    hostname: orderer1.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_GENESISMETHOD=file
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer1.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer1:/etc/bft-config
+    ports:
+      - "7050:7050"
+
+  orderer2:
+    image: ${ORDERER_IMAGE}
+    container_name: orderer2
+    hostname: orderer2.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer2.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer2:/etc/bft-config
+    ports:
+      - "8050:7050"
+
+  orderer3:
+    image: ${ORDERER_IMAGE}
+    container_name: orderer3
+    hostname: orderer3.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer3.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer3:/etc/bft-config
+    ports:
+      - "9050:7050"
+
+  orderer4:
+    image: ${ORDERER_IMAGE}
+    container_name: orderer4
+    hostname: orderer4.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer4.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer4:/etc/bft-config
+    ports:
+      - "10050:7050"
+
+  # ---- Certificate Authorities ----
+  ca_org1:
+    image: hyperledger/fabric-ca:1.4
+    container_name: ca_org1
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+    ports:
+      - "7054:7054"
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/ca:/etc/hyperledger/fabric-ca-server
+
+  ca_org2:
+    image: hyperledger/fabric-ca:1.4
+    container_name: ca_org2
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+    ports:
+      - "8054:7054"
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/ca:/etc/hyperledger/fabric-ca-server
+
+  # ---- Org1 peers (peer0..peer3) ----
+  peer0.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer0.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer0.org1.example.com
+      - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.org1.example.com:7052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer1.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org1.example.com:7051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer1/org1:/var/hyperledger/production
+    ports:
+      - "7051:7051"
+      - "7053:7053"
+    depends_on:
+      - couchdb_peer0_org1
+
+  peer1.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer1.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer1.org1.example.com
+      - CORE_PEER_ADDRESS=peer1.org1.example.com:8051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:8051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.org1.example.com:8051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer1.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer2/org1:/var/hyperledger/production
+    ports:
+      - "8051:7051"
+    depends_on:
+      - couchdb_peer1_org1
+
+  peer2.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer2.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer2.org1.example.com
+      - CORE_PEER_ADDRESS=peer2.org1.example.com:9051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:9051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer2.org1.example.com:9051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer2.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer3/org1:/var/hyperledger/production
+    ports:
+      - "9051:7051"
+    depends_on:
+      - couchdb_peer2_org1
+
+  peer3.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer3.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer3.org1.example.com
+      - CORE_PEER_ADDRESS=peer3.org1.example.com:10051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:10051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer3.org1.example.com:10051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer3.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer4/org1:/var/hyperledger/production
+    ports:
+      - "10051:7051"
+    depends_on:
+      - couchdb_peer3_org1
+
+  # ---- Org2 peers (peer0..peer3) ----
+  peer0.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer0.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer0.org2.example.com
+      - CORE_PEER_ADDRESS=peer0.org2.example.com:11051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:11051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer1.org2.example.com:12051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org2.example.com:11051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer0.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer1/org2:/var/hyperledger/production
+    ports:
+      - "11051:7051"
+    depends_on:
+      - couchdb_peer0_org2
+
+  peer1.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer1.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer1.org2.example.com
+      - CORE_PEER_ADDRESS=peer1.org2.example.com:12051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:12051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org2.example.com:11051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.org2.example.com:12051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer1.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer2/org2:/var/hyperledger/production
+    ports:
+      - "12051:7051"
+    depends_on:
+      - couchdb_peer1_org2
+
+  peer2.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer2.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer2.org2.example.com
+      - CORE_PEER_ADDRESS=peer2.org2.example.com:13051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:13051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org2.example.com:11051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer2.org2.example.com:13051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer2.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer3/org2:/var/hyperledger/production
+    ports:
+      - "13051:7051"
+    depends_on:
+      - couchdb_peer2_org2
+
+  peer3.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer3.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer3.org2.example.com
+      - CORE_PEER_ADDRESS=peer3.org2.example.com:14051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:14051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org2.example.com:11051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer3.org2.example.com:14051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer3.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer4/org2:/var/hyperledger/production
+    ports:
+      - "14051:7051"
+    depends_on:
+      - couchdb_peer3_org2
+
+  # ---- CouchDB instances for peers (optional, used for rich queries) ----
+  couchdb_peer0_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer0_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5984:5984"
+    volumes:
+      - ./couchdb/peer0.org1:/opt/couchdb/data
+
+  couchdb_peer1_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer1_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5985:5984"
+    volumes:
+      - ./couchdb/peer1.org1:/opt/couchdb/data
+
+  couchdb_peer2_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer2_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5986:5984"
+    volumes:
+      - ./couchdb/peer2.org1:/opt/couchdb/data
+
+  couchdb_peer3_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer3_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5987:5984"
+    volumes:
+      - ./couchdb/peer3.org1:/opt/couchdb/data
+
+  couchdb_peer0_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer0_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5988:5984"
+    volumes:
+      - ./couchdb/peer0.org2:/opt/couchdb/data
+
+  couchdb_peer1_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer1_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5989:5984"
+    volumes:
+      - ./couchdb/peer1.org2:/opt/couchdb/data
+
+  couchdb_peer2_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer2_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5990:5984"
+    volumes:
+      - ./couchdb/peer2.org2:/opt/couchdb/data
+
+  couchdb_peer3_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer3_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5991:5984"
+    volumes:
+      - ./couchdb/peer3.org2:/opt/couchdb/data
+
+  # ---- CLI (fabric-tools) ----
+  cli:
+    image: hyperledger/fabric-tools:2.4
+    container_name: cli
+    tty: true
+    stdin_open: true
+    environment:
+      - GOPATH=/opt/gopath
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    volumes:
+      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/
+      - ./channel-artifacts:/opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts
+      - ./config:/opt/gopath/src/github.com/hyperledger/fabric/peer/config
+      - ./chaincode:/opt/gopath/src/github.com/chaincode
+      - /var/run/:/host/var/run/
+    depends_on:
+      - peer0.org1
+      - peer0.org2
+
+networks:
+  default:
+    driver: bridge
+EOF
+
+# crypto-config.yaml
+cat > crypto-config.yaml <<'EOF'
+# crypto-config.yaml for cryptogen
+# 2 orgs (Org1, Org2) each with 4 peers, OrdererOrg with 4 orderers (for PBFT f=1 -> 4 orderers)
+OrdererOrgs:
+  - Name: OrdererOrg
+    Domain: example.com
+    Specs:
+      - Hostname: orderer1
+      - Hostname: orderer2
+      - Hostname: orderer3
+      - Hostname: orderer4
+
+PeerOrgs:
+  - Name: Org1
+    Domain: org1.example.com
+    Template:
+      Count: 4
+    Users:
+      Count: 1
+
+  - Name: Org2
+    Domain: org2.example.com
+    Template:
+      Count: 4
+    Users:
+      Count: 1
+EOF
+
+# configtx.yaml
+cat > configtx.yaml <<'EOF'
+Organizations:
+  - &OrdererOrg
+    Name: OrdererOrg
+    ID: OrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrdererMSP.admin')"
+
+  - &Org1
+    Name: Org1MSP
+    ID: Org1MSP
+    MSPDir: crypto-config/peerOrganizations/org1.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('Org1MSP.admin','Org1MSP.peer','Org1MSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('Org1MSP.admin','Org1MSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('Org1MSP.admin')"
+
+  - &Org2
+    Name: Org2MSP
+    ID: Org2MSP
+    MSPDir: crypto-config/peerOrganizations/org2.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('Org2MSP.admin','Org2MSP.peer','Org2MSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('Org2MSP.admin','Org2MSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('Org2MSP.admin')"
+
+Orderer: &OrdererDefaults
+  # NOTE: Fabric configtxgen does not natively support PBFT; these are placeholders.
+  OrdererType: etcdraft
+  Addresses:
+    - orderer1.example.com:7050
+    - orderer2.example.com:8050
+    - orderer3.example.com:9050
+    - orderer4.example.com:10050
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 250
+    AbsoluteMaxBytes: 98 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrdererMSP.member')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrdererMSP.member')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrdererMSP.admin')"
+
+Profiles:
+  TwoOrgsOrdererGenesis:
+    <<: *OrdererDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+    Consortiums:
+      SampleConsortium:
+        Organizations:
+          - *Org1
+          - *Org2
+
+  TwoOrgsChannel:
+    Consortium: SampleConsortium
+    Application:
+      Organizations:
+        - *Org1
+        - *Org2
+      Policies:
+        Readers:
+          Type: ImplicitMeta
+          Rule: "ANY Readers"
+        Writers:
+          Type: ImplicitMeta
+          Rule: "ANY Writers"
+        Admins:
+          Type: ImplicitMeta
+          Rule: "MAJORITY Admins"
+EOF
+
+# README.md
+cat > README.md <<'EOF'
+# Fabric + PBFT 电力交易测试网络模板
+
+此仓库分支 (fabric-pbft-setup) 包含用于搭建 Hyperledger Fabric 测试网络的模板文件，采用 PBFT ordering（4 个 orderer 节点，用于 f=1 的拜占庭容错），两个组织（Org1、Org2），每 org 有 4 个 peers。
+
+包含文件（本分支）：
+- docker-compose-complete.yaml：包含 4 个 PBFT orderer 占位服务、2 个 CA、每 org 的 4 个 peer、对应 CouchDB 实例与一个 fabric-tools CLI 容器。
+- crypto-config.yaml：cryptogen 模板（Org1、Org2 各 4 peers，OrdererOrg 4 个 orderer）。
+- configtx.yaml：channel 与 genesis/profile 示例（注意：configtxgen 对 PBFT 的支持需视具体 PBFT orderer 实现而定）。
+- scripts/createChannel.sh：在 cli 容器中生成 channel.tx（如果 configtxgen 可用）并创建通道。
+- scripts/joinChannel.sh：让所有 peers 加入通道。
+- scripts/deployChaincode.sh：基于 Fabric v2 lifecycle 完成链码打包、安装、审批与提交。
+- chaincode/power_trade/power_trade_chaincode.go：示例链码（Go），包含注册参与者、发布 Offer、撮合 Trade、查询 Trade 等接口。
+
+重要注意事项（必须手动操作 / 视实现调整）：
+1. PBFT orderer 镜像已替换为 ${ORDERER_IMAGE}。如需更换请修改 docker-compose-complete.yaml 的 image 字段。
+2. Fabric 官方 orderer 后端（RAFT）不提供 PBFT；你需要使用社区/第三方 PBFT ordering backend（例如基于 BFT-SMaRt 的实现）并按照该实现生成 PBFT-specific 的 genesis/config。把 PBFT 实现需要的配置放到 \`./bft-config/ordererX\`。
+3. 证书（crypto material）默认使用 cryptogen 生成并放在 \`./crypto-config\`（仓库根）。若你使用 Fabric CA 或把证书放在其它位置，请相应修改 docker-compose volume 映射和脚本中的路径。
+4. 在某些 PBFT 实现里，configtxgen 生成的 genesis/channel 文件可能无法直接使用，需调整脚本以使用 PBFT 实现提供的工具生成 genesis。createChannel.sh 中包含了 configtxgen 步骤但在失败时不会中止（以便你替换为 PBFT-specific 流程）。
+5. 部署前请把链码源码放到 \`./chaincode/power_trade\`（本脚本已包含示例链码）。
+
+快速使用指南（本地手动执行）：
+1. 在本地生成 crypto material（示例使用 cryptogen）：
+   - cryptogen generate --config=./crypto-config.yaml
+   - 生成后把 \`crypto-config\` 目录置于仓库根。
+2. 根据 PBFT 实现的说明生成 PBFT 所需的 genesis（并把任何 bft-config 放到 ./bft-config/ordererX）。
+3. 启动容器：
+   - docker-compose -f docker-compose-complete.yaml up -d
+4. 在容器启动并就绪后：
+   - chmod +x scripts/*.sh
+   - ./scripts/createChannel.sh
+   - ./scripts/joinChannel.sh
+   - ./scripts/deployChaincode.sh
+EOF
+
+# scripts/createChannel.sh
+cat > scripts/createChannel.sh <<'EOF'
+#!/bin/bash
+# createChannel.sh
+# 说明：
+# - 在 cli 容器中使用 configtxgen 生成 channel.tx（如果你的 PBFT 实现需要不同的 genesis/channel 生成方式，请替换这部分）
+# - 脚本会在 channel-artifacts 中生成 mychannel.tx 与 mychannel.block（如果 configtxgen 可用）
+# - 运行前确保 docker-compose-complete.yaml 中的 volumes 路径已有 crypto-config 和 configtx.yaml
+
+set -e
+
+CHANNEL_NAME="mychannel"
+PROFILE="TwoOrgsChannel"    # 与 configtx.yaml 中 Profiles 名称一致
+ORDERER_CONN=orderer1.example.com:7050
+
+echo "==> 生成 channel.tx (如果 configtxgen 可用)"
+docker exec cli bash -c "configtxgen -profile ${PROFILE} -outputCreateChannelTx /opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts/${CHANNEL_NAME}.tx -channelID ${CHANNEL_NAME}" || {
+  echo "configtxgen 生成 channel.tx 失败，请确认 configtxgen 可用或使用 PBFT 实现的 genesis 生成方式"
+}
+
+ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer1.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+echo "==> 使用 peer cli 创建通道（peer0.org1）"
+docker exec cli bash -c "\
+export CORE_PEER_LOCALMSPID=Org1MSP && \
+export CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp && \
+export CORE_PEER_ADDRESS=peer0.org1.example.com:7051 && \
+peer channel create -o ${ORDERER_CONN} -c ${CHANNEL_NAME} -f /opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts/${CHANNEL_NAME}.tx --outputBlock /opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts/${CHANNEL_NAME}.block --tls --cafile ${ORDERER_CA}"
+
+echo "Channel ${CHANNEL_NAME} creation attempted. Check channel-artifacts/${CHANNEL_NAME}.block"
+EOF
+chmod +x scripts/createChannel.sh
+
+# scripts/joinChannel.sh
+cat > scripts/joinChannel.sh <<'EOF'
+#!/bin/bash
+# joinChannel.sh
+# 将所有 peer 加入到指定 channel
+set -e
+
+CHANNEL_NAME="mychannel"
+ORDERER_CONN=orderer1.example.com:7050
+ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer1.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+joinPeer() {
+  ORG=$1
+  PEER_INDEX=$2
+  PEER_ADDR=$3
+  MSPID=$4
+  ADMIN_MSP_PATH=$5
+
+  echo "==> 使用 ${MSPID} 的 peer${PEER_INDEX} (${PEER_ADDR}) 加入通道 ${CHANNEL_NAME}"
+  docker exec cli bash -c "export CORE_PEER_LOCALMSPID=${MSPID} && \
+export CORE_PEER_MSPCONFIGPATH=${ADMIN_MSP_PATH} && \
+export CORE_PEER_ADDRESS=${PEER_ADDR} && \
+peer channel join -b /opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts/${CHANNEL_NAME}.block"
+}
+
+# Org1 peers (peer0..peer3)
+for i in 0 1 2 3; do
+  PEER_ADDR="peer${i}.org1.example.com:7051"
+  joinPeer "Org1" $i ${PEER_ADDR} "Org1MSP" "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp"
+done
+
+# Org2 peers (peer0..peer3)
+for i in 0 1 2 3; do
+  PEER_ADDR="peer${i}.org2.example.com:7051"
+  joinPeer "Org2" $i ${PEER_ADDR} "Org2MSP" "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp"
+done
+
+echo "所有 peer 已请求加入通道（如有失败请查看容器日志）"
+EOF
+chmod +x scripts/joinChannel.sh
+
+# scripts/deployChaincode.sh
+cat > scripts/deployChaincode.sh <<'EOF'
+#!/bin/bash
+# deployChaincode.sh
+# 基于 Fabric v2 lifecycle 的链码部署模板脚本（自动在所有 org 的 peer 上安装并审批再提交）
+# 运行前确保：chaincode 源码位于 ./chaincode/power_trade，并且 cli 容器的 /opt/gopath/src/github.com/chaincode 已挂载对应目录
+set -e
+
+CHANNEL_NAME="mychannel"
+CC_NAME="power_trade"
+CC_VERSION="1.0"
+CC_SEQUENCE="1"
+CC_LANG="golang"   # "golang" 或 "node"
+CC_LABEL="${CC_NAME}_${CC_VERSION}"
+PACKAGE_PATH="/opt/gopath/src/github.com/chaincode/${CC_NAME}"
+PACKAGE_FILE="/opt/gopath/src/github.com/chaincode/${CC_NAME}/${CC_NAME}.tar.gz"
+ORDERER_CONN=orderer1.example.com:7050
+ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer1.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+# 1) 打包链码
+echo "==> 打包链码"
+docker exec cli bash -c "rm -f ${PACKAGE_FILE} || true && peer lifecycle chaincode package ${PACKAGE_FILE} --path ${PACKAGE_PATH} --lang ${CC_LANG} --label ${CC_LABEL}"
+echo "链码打包完成: ${PACKAGE_FILE}"
+
+# 2) 在所有 peer 上安装链码
+installOnPeer() {
+  PEER_ADDR=$1
+  MSPID=$2
+  ADMIN_MSP_PATH=$3
+
+  echo "==> 安装链码到 ${PEER_ADDR} (${MSPID})"
+  docker exec cli bash -c "export CORE_PEER_LOCALMSPID=${MSPID} && \
+export CORE_PEER_MSPCONFIGPATH=${ADMIN_MSP_PATH} && \
+export CORE_PEER_ADDRESS=${PEER_ADDR} && \
+peer lifecycle chaincode install ${PACKAGE_FILE}"
+}
+
+# Org1 peers
+for i in 0 1 2 3; do
+  PEER_ADDR="peer${i}.org1.example.com:7051"
+  installOnPeer ${PEER_ADDR} "Org1MSP" "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp"
+done
+
+# Org2 peers
+for i in 0 1 2 3; do
+  PEER_ADDR="peer${i}.org2.example.com:7051"
+  installOnPeer ${PEER_ADDR} "Org2MSP" "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp"
+done
+
+# 3) 查询已安装以获取 package ID (在任意 peer 的上下文中)
+echo "==> 查询已安装链码以获取 package ID (在 Org1 admin 上查询)"
+PKG_ID=$(docker exec cli bash -c "export CORE_PEER_LOCALMSPID=Org1MSP && \
+export CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp && \
+export CORE_PEER_ADDRESS=peer0.org1.example.com:7051 && \
+peer lifecycle chaincode queryinstalled" | awk -v label="$CC_LABEL" '/Package ID:/{pid=$3} /Label:/{if(\$2==label) print pid}' | head -n1)
+
+if [ -z "$PKG_ID" ]; then
+  echo "无法解析 package ID，请手动运行 'peer lifecycle chaincode queryinstalled' 查看输出"
+  docker exec cli bash -c "export CORE_PEER_LOCALMSPID=Org1MSP && export CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp && export CORE_PEER_ADDRESS=peer0.org1.example.com:7051 && peer lifecycle chaincode queryinstalled"
+  exit 1
+fi
+
+echo "Detected package ID: ${PKG_ID}"
+
+# 4) 每个组织审批链码定义
+approveForOrg() {
+  ORG_MSP=$1
+  ADMIN_MSP_PATH=$2
+  PEER_ADDR=$3
+
+  echo "==> ${ORG_MSP} 审批链码定义"
+  docker exec cli bash -c "export CORE_PEER_LOCALMSPID=${ORG_MSP} && \
+export CORE_PEER_MSPCONFIGPATH=${ADMIN_MSP_PATH} && \
+export CORE_PEER_ADDRESS=${PEER_ADDR} && \
+peer lifecycle chaincode approveformyorg -o ${ORDERER_CONN} --ordererTLSHostnameOverride orderer1.example.com --tls --cafile ${ORDERER_CA} --channelID ${CHANNEL_NAME} --name ${CC_NAME} --version ${CC_VERSION} --package-id ${PKG_ID} --sequence ${CC_SEQUENCE}"
+}
+
+approveForOrg "Org1MSP" "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp" "peer0.org1.example.com:7051"
+approveForOrg "Org2MSP" "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp" "peer0.org2.example.com:7051"
+
+# 5) 检查是否达到提交条件
+echo "==> 检查 commit readiness"
+docker exec cli bash -c "export CORE_PEER_LOCALMSPID=Org1MSP && \
+export CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp && \
+export CORE_PEER_ADDRESS=peer0.org1.example.com:7051 && \
+peer lifecycle chaincode checkcommitreadiness --channelID ${CHANNEL_NAME} --name ${CC_NAME} --version ${CC_VERSION} --sequence ${CC_SEQUENCE} --output json"
+
+# 6) Commit 链码定义到 channel（至少需要 Org1 与 Org2 的签名）
+echo "==> Commit chaincode definition to channel"
+docker exec cli bash -c "peer lifecycle chaincode commit -o ${ORDERER_CONN} --ordererTLSHostnameOverride orderer1.example.com --tls --cafile ${ORDERER_CA} --channelID ${CHANNEL_NAME} --name ${CC_NAME} --version ${CC_VERSION} --sequence ${CC_SEQUENCE} --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt --peerAddresses peer0.org2.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt"
+
+# 7) 可选：在通道上初始化链码（如链码有 Init 函数），示例：
+echo "==> Chaincode committed. (如果链码需要 Init，请调用 peer chaincode invoke --isInit ... )"
+EOF
+chmod +x scripts/deployChaincode.sh
+
+# chaincode file
+cat > chaincode/power_trade/power_trade_chaincode.go <<'EOF'
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+)
+
+// Participant represents a market participant
+type Participant struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Role      string `json:"role"` // generator, retailer, operator, regulator
+	AccountID string `json:"accountId"`
+}
+
+// Offer represents a sell offer (from generator)
+type Offer struct {
+	ID        string  `json:"id"`
+	SellerID  string  `json:"sellerId"`
+	StartTime string  `json:"startTime"`
+	EndTime   string  `json:"endTime"`
+	Quantity  float64 `json:"quantity"`
+	Price     float64 `json:"price"`
+	Status    string  `json:"status"` // open, matched, cancelled
+}
+
+// Trade represents a matched trade
+type Trade struct {
+	ID       string  `json:"id"`
+	OfferID  string  `json:"offerId"`
+	BuyerID  string  `json:"buyerId"`
+	Quantity float64 `json:"quantity"`
+	Price    float64 `json:"price"`
+	Status   string  `json:"status"` // pending, confirmed, settled
+}
+
+type PowerContract struct {
+	contractapi.Contract
+}
+
+func (pc *PowerContract) RegisterParticipant(ctx contractapi.TransactionContextInterface, pJSON string) error {
+	var p Participant
+	if err := json.Unmarshal([]byte(pJSON), &p); err != nil {
+		return err
+	}
+	exists, err := ctx.GetStub().GetState(p.ID)
+	if err != nil {
+		return err
+	}
+	if exists != nil {
+		return fmt.Errorf("participant %s already exists", p.ID)
+	}
+	data, _ := json.Marshal(p)
+	return ctx.GetStub().PutState(p.ID, data)
+}
+
+func (pc *PowerContract) SubmitOffer(ctx contractapi.TransactionContextInterface, offerJSON string) error {
+	var o Offer
+	if err := json.Unmarshal([]byte(offerJSON), &o); err != nil {
+		return err
+	}
+	o.Status = "open"
+	data, _ := json.Marshal(o)
+	return ctx.GetStub().PutState("OFFER_"+o.ID, data)
+}
+
+func (pc *PowerContract) MatchTrade(ctx contractapi.TransactionContextInterface, tradeJSON string) error {
+	var t Trade
+	if err := json.Unmarshal([]byte(tradeJSON), &t); err != nil {
+		return err
+	}
+	// 简化：直接写入 trade 并把 offer 状态改为 matched
+	offerB, err := ctx.GetStub().GetState("OFFER_" + t.OfferID)
+	if err != nil || offerB == nil {
+		return fmt.Errorf("offer %s not found", t.OfferID)
+	}
+	var o Offer
+	_ = json.Unmarshal(offerB, &o)
+	if o.Status != "open" {
+		return fmt.Errorf("offer %s not open", t.OfferID)
+	}
+	o.Status = "matched"
+	// update offer
+	ob, _ := json.Marshal(o)
+	if err := ctx.GetStub().PutState("OFFER_"+o.ID, ob); err != nil {
+		return err
+	}
+	// create trade
+	t.Status = "pending"
+	tb, _ := json.Marshal(t)
+	return ctx.GetStub().PutState("TRADE_"+t.ID, tb)
+}
+
+func (pc *PowerContract) QueryTrade(ctx contractapi.TransactionContextInterface, id string) (*Trade, error) {
+	b, err := ctx.GetStub().GetState("TRADE_" + id)
+	if err != nil || b == nil {
+		return nil, fmt.Errorf("trade %s not found", id)
+	}
+	var t Trade
+	_ = json.Unmarshal(b, &t)
+	return &t, nil
+}
+
+func main() {
+	chaincode, err := contractapi.NewChaincode(&PowerContract{})
+	if err != nil {
+		fmt.Printf("Error create chaincode: %s", err.Error())
+		return
+	}
+	if err := chaincode.Start(); err != nil {
+		fmt.Printf("Error starting chaincode: %s", err.Error())
+	}
+}
+EOF
+
+echo "文件已写入本地。"
+
+read -p "是否现在创建分支并提交(push)到远端 origin 并尝试创建 PR？(yes/no) " DO_PUSH
+if [ "$DO_PUSH" = "yes" ]; then
+  git checkout -b "$BRANCH"
+  git add -A
+  git commit -m "Add Fabric PBFT test network templates and scripts"
+  git push --set-upstream origin "$BRANCH"
+  echo "分支已推送到 origin/${BRANCH}."
+  if command -v gh >/dev/null 2>&1; then
+    read -p "检测到 gh (GitHub CLI)，是否使用 gh 创建 PR？(yes/no) " DO_PR
+    if [ "$DO_PR" = "yes" ]; then
+      gh pr create --title "Add Fabric PBFT test network templates and scripts (docker-compose + scripts + chaincode)" --body "Adds docker-compose, scripts and sample chaincode for PBFT test network. Manual steps: generate crypto-config, provide PBFT genesis/artifacts and bft-config, then run scripts." --base main --head "$BRANCH"
+      echo "PR 已创建（通过 gh）。"
+    else
+      echo "请在 GitHub UI 手动创建 PR，从 ${BRANCH} 合并到 main。"
+    fi
+  else
+    echo "未检测到 gh CLI。请在 GitHub UI 手动创建 PR，从 ${BRANCH} 合并到 main。"
+  fi
+else
+  echo "Push 已跳过。你可以手动创建分支并提交，或在稍后运行脚本再次选择 push。"
+fi
+
+echo "完成。"
+EOF
+
+下面是每个单独文件的独立代码块（若你 prefer 手动粘贴到 GitHub 编辑器更方便）。按需复制粘贴到对应路径。
+
+```yaml name=docker-compose-complete.yaml
+version: '3.7'
+services:
+  # ---- Orderers (PBFT) ----
+  orderer1:
+    image: myregistry/bft-orderer:1.0
+    container_name: orderer1
+    hostname: orderer1.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_GENESISMETHOD=file
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer1.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer1:/etc/bft-config
+    ports:
+      - "7050:7050"
+
+  orderer2:
+    image: myregistry/bft-orderer:1.0
+    container_name: orderer2
+    hostname: orderer2.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer2.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer2:/etc/bft-config
+    ports:
+      - "8050:7050"
+
+  orderer3:
+    image: myregistry/bft-orderer:1.0
+    container_name: orderer3
+    hostname: orderer3.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer3.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer3:/etc/bft-config
+    ports:
+      - "9050:7050"
+
+  orderer4:
+    image: myregistry/bft-orderer:1.0
+    container_name: orderer4
+    hostname: orderer4.example.com
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_TLS_ENABLED=true
+    volumes:
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer4.example.com:/var/hyperledger/orderer
+      - ./bft-config/orderer4:/etc/bft-config
+    ports:
+      - "10050:7050"
+
+  # ---- Certificate Authorities ----
+  ca_org1:
+    image: hyperledger/fabric-ca:1.4
+    container_name: ca_org1
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+    ports:
+      - "7054:7054"
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/ca:/etc/hyperledger/fabric-ca-server
+
+  ca_org2:
+    image: hyperledger/fabric-ca:1.4
+    container_name: ca_org2
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+    ports:
+      - "8054:7054"
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/ca:/etc/hyperledger/fabric-ca-server
+
+  # ---- Org1 peers (peer0..peer3) ----
+  peer0.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer0.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer0.org1.example.com
+      - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.org1.example.com:7052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer1.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org1.example.com:7051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer1/org1:/var/hyperledger/production
+    ports:
+      - "7051:7051"
+      - "7053:7053"
+    depends_on:
+      - couchdb_peer0_org1
+
+  peer1.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer1.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer1.org1.example.com
+      - CORE_PEER_ADDRESS=peer1.org1.example.com:8051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:8051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.org1.example.com:8051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer1.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer2/org1:/var/hyperledger/production
+    ports:
+      - "8051:7051"
+    depends_on:
+      - couchdb_peer1_org1
+
+  peer2.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer2.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer2.org1.example.com
+      - CORE_PEER_ADDRESS=peer2.org1.example.com:9051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:9051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer2.org1.example.com:9051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer2.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer3/org1:/var/hyperledger/production
+    ports:
+      - "9051:7051"
+    depends_on:
+      - couchdb_peer2_org1
+
+  peer3.org1:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer3.org1.example.com
+    environment:
+      - CORE_PEER_ID=peer3.org1.example.com
+      - CORE_PEER_ADDRESS=peer3.org1.example.com:10051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:10051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer3.org1.example.com:10051
+      - CORE_PEER_LOCALMSPID=Org1MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer3.org1.example.com:/etc/hyperledger/crypto/peer
+      - ./peer4/org1:/var/hyperledger/production
+    ports:
+      - "10051:7051"
+    depends_on:
+      - couchdb_peer3_org1
+
+  # ---- Org2 peers (peer0..peer3) ----
+  peer0.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer0.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer0.org2.example.com
+      - CORE_PEER_ADDRESS=peer0.org2.example.com:11051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:11051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer1.org2.example.com:12051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org2.example.com:11051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer0.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer1/org2:/var/hyperledger/production
+    ports:
+      - "11051:7051"
+    depends_on:
+      - couchdb_peer0_org2
+
+  peer1.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer1.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer1.org2.example.com
+      - CORE_PEER_ADDRESS=peer1.org2.example.com:12051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:12051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org2.example.com:11051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.org2.example.com:12051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer1.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer2/org2:/var/hyperledger/production
+    ports:
+      - "12051:7051"
+    depends_on:
+      - couchdb_peer1_org2
+
+  peer2.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer2.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer2.org2.example.com
+      - CORE_PEER_ADDRESS=peer2.org2.example.com:13051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:13051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org2.example.com:11051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer2.org2.example.com:13051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer2.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer3/org2:/var/hyperledger/production
+    ports:
+      - "13051:7051"
+    depends_on:
+      - couchdb_peer2_org2
+
+  peer3.org2:
+    image: hyperledger/fabric-peer:2.4
+    container_name: peer3.org2.example.com
+    environment:
+      - CORE_PEER_ID=peer3.org2.example.com
+      - CORE_PEER_ADDRESS=peer3.org2.example.com:14051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:14051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org2.example.com:11051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer3.org2.example.com:14051
+      - CORE_PEER_LOCALMSPID=Org2MSP
+    volumes:
+      - ./crypto-config/peerOrganizations/org2.example.com/peers/peer3.org2.example.com:/etc/hyperledger/crypto/peer
+      - ./peer4/org2:/var/hyperledger/production
+    ports:
+      - "14051:7051"
+    depends_on:
+      - couchdb_peer3_org2
+
+  # ---- CouchDB instances for peers (optional, used for rich queries) ----
+  couchdb_peer0_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer0_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5984:5984"
+    volumes:
+      - ./couchdb/peer0.org1:/opt/couchdb/data
+
+  couchdb_peer1_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer1_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5985:5984"
+    volumes:
+      - ./couchdb/peer1.org1:/opt/couchdb/data
+
+  couchdb_peer2_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer2_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5986:5984"
+    volumes:
+      - ./couchdb/peer2.org1:/opt/couchdb/data
+
+  couchdb_peer3_org1:
+    image: couchdb:3.1
+    container_name: couchdb_peer3_org1
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5987:5984"
+    volumes:
+      - ./couchdb/peer3.org1:/opt/couchdb/data
+
+  couchdb_peer0_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer0_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5988:5984"
+    volumes:
+      - ./couchdb/peer0.org2:/opt/couchdb/data
+
+  couchdb_peer1_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer1_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5989:5984"
+    volumes:
+      - ./couchdb/peer1.org2:/opt/couchdb/data
+
+  couchdb_peer2_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer2_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5990:5984"
+    volumes:
+      - ./couchdb/peer2.org2:/opt/couchdb/data
+
+  couchdb_peer3_org2:
+    image: couchdb:3.1
+    container_name: couchdb_peer3_org2
+    environment:
+      - COUCHDB_USER=
+      - COUCHDB_PASSWORD=
+    ports:
+      - "5991:5984"
+    volumes:
+      - ./couchdb/peer3.org2:/opt/couchdb/data
+
+  # ---- CLI (fabric-tools) ----
+  cli:
+    image: hyperledger/fabric-tools:2.4
+    container_name: cli
+    tty: true
+    stdin_open: true
+    environment:
+      - GOPATH=/opt/gopath
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    volumes:
+      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/
+      - ./channel-artifacts:/opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts
+      - ./config:/opt/gopath/src/github.com/hyperledger/fabric/peer/config
+      - ./chaincode:/opt/gopath/src/github.com/chaincode
+      - /var/run/:/host/var/run/
+    depends_on:
+      - peer0.org1
+      - peer0.org2
+
+networks:
+  default:
+    driver: bridge
+```
+
+```yaml name=crypto-config.yaml
+# crypto-config.yaml for cryptogen
+# 2 orgs (Org1, Org2) each with 4 peers, OrdererOrg with 4 orderers (for PBFT f=1 -> 4 orderers)
+OrdererOrgs:
+  - Name: OrdererOrg
+    Domain: example.com
+    Specs:
+      - Hostname: orderer1
+      - Hostname: orderer2
+      - Hostname: orderer3
+      - Hostname: orderer4
+
+PeerOrgs:
+  - Name: Org1
+    Domain: org1.example.com
+    Template:
+      Count: 4
+    Users:
+      Count: 1
+
+  - Name: Org2
+    Domain: org2.example.com
+    Template:
+      Count: 4
+    Users:
+      Count: 1
+```
+
+```yaml name=configtx.yaml
+Organizations:
+  - &OrdererOrg
+    Name: OrdererOrg
+    ID: OrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrdererMSP.admin')"
+
+  - &Org1
+    Name: Org1MSP
+    ID: Org1MSP
+    MSPDir: crypto-config/peerOrganizations/org1.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('Org1MSP.admin','Org1MSP.peer','Org1MSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('Org1MSP.admin','Org1MSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('Org1MSP.admin')"
+
+  - &Org2
+    Name: Org2MSP
+    ID: Org2MSP
+    MSPDir: crypto-config/peerOrganizations/org2.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('Org2MSP.admin','Org2MSP.peer','Org2MSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('Org2MSP.admin','Org2MSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('Org2MSP.admin')"
+
+Orderer: &OrdererDefaults
+  # NOTE: Fabric configtxgen does not natively support PBFT; these are placeholders.
+  OrdererType: etcdraft
+  Addresses:
+    - orderer1.example.com:7050
+    - orderer2.example.com:8050
+    - orderer3.example.com:9050
+    - orderer4.example.com:10050
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 250
+    AbsoluteMaxBytes: 98 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrdererMSP.member')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrdererMSP.member')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrdererMSP.admin')"
+
+Profiles:
+  TwoOrgsOrdererGenesis:
+    <<: *OrdererDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+    Consortiums:
+      SampleConsortium:
+        Organizations:
+          - *Org1
+          - *Org2
+
+  TwoOrgsChannel:
+    Consortium: SampleConsortium
+    Application:
+      Organizations:
+        - *Org1
+        - *Org2
+      Policies:
+        Readers:
+          Type: ImplicitMeta
+          Rule: "ANY Readers"
+        Writers:
+          Type: ImplicitMeta
+          Rule: "ANY Writers"
+        Admins:
+          Type: ImplicitMeta
+          Rule: "MAJORITY Admins"
+```
+
+````markdown name=README.md
+# Fabric + PBFT 电力交易测试网络模板
+
+此仓库分支 (fabric-pbft-setup) 包含用于搭建 Hyperledger Fabric 测试网络的模板文件，采用 PBFT ordering（4 个 orderer 节点，用于 f=1 的拜占庭容错），两个组织（Org1、Org2），每 org 有 4 个 peers。
+
+包含文件（本分支）：
+- docker-compose-complete.yaml：包含 4 个 PBFT orderer 占位服务、2 个 CA、每 org 的 4 个 peer、对应 CouchDB 实例与一个 fabric-tools CLI 容器。
+- crypto-config.yaml：cryptogen 模板（Org1、Org2 各 4 peers，OrdererOrg 4 个 orderer）。
+- configtx.yaml：channel 与 genesis/profile 示例（注意：configtxgen 对 PBFT 的支持需视具体 PBFT orderer 实现而定）。
+- scripts/createChannel.sh：在 cli 容器中生成 channel.tx（如果 configtxgen 可用）并创建通道。
+- scripts/joinChannel.sh：让所有 peers 加入通道。
+- scripts/deployChaincode.sh：基于 Fabric v2 lifecycle 完成链码打包、安装、审批与提交。
+- chaincode/power_trade/power_trade_chaincode.go：示例链码（Go），包含注册参与者、发布 Offer、撮合 Trade、查询 Trade 等接口。
+
+重要注意事项（必须手动操作 / 视实现调整）：
+1. PBFT orderer 镜像已替换为 myregistry/bft-orderer:1.0。如需更换请修改 docker-compose-complete.yaml 的 image 字段。
+2. Fabric 官方 orderer 后端（RAFT）不提供 PBFT；你需要使用社区/第三方 PBFT ordering backend（例如基于 BFT-SMaRt 的实现）并按照该实现生成 PBFT-specific 的 genesis/config。把 PBFT 实现需要的配置放到 `./bft-config/ordererX`。
+3. 证书（crypto material）默认使用 cryptogen 生成并放在 `./crypto-config`（仓库根）。若你使用 Fabric CA 或把证书放在其它位置，请相应修改 docker-compose volume 映射和脚本中的路径。
+4. 在某些 PBFT 实现里，configtxgen 生成的 genesis/channel 文件可能无法直接使用，需调整脚本以使用 PBFT 实现提供的工具生成 genesis。createChannel.sh 中包含了 configtxgen 步骤但在失败时不会中止（以便你替换为 PBFT-specific 流程）。
+5. 部署前请把链码源码放到 `./chaincode/power_trade`（本分支已包含示例链码）。
+
+快速使用指南（本地手动执行）：
+1. 在本地生成 crypto material（示例使用 cryptogen）：
+   - cryptogen generate --config=./crypto-config.yaml
+   - 生成后把 `crypto-config` 目录置于仓库根。
+2. 根据 PBFT 实现的说明生成 PBFT 所需的 genesis（并把任何 bft-config 放到 ./bft-config/ordererX）。
+3. 启动容器：
+   - docker-compose -f docker-compose-complete.yaml up -d
+4. 在容器启动并就绪后：
+   - chmod +x scripts/*.sh
+   - ./scripts/createChannel.sh
+   - ./scripts/joinChannel.sh
+   - ./scripts/deployChaincode.sh
